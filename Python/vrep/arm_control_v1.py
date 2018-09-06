@@ -19,6 +19,7 @@ def scale_x(x):
 
 
 try:
+    # Initialize node for ros
     rospy.init_node("BiopsyArmTest",anonymous=True)
 
     #Initialize the Haptic device
@@ -60,7 +61,6 @@ try:
             "N",
             vrep.simx_opmode_blocking)
 
-
         # Get the handle of the target
         _, target_xyz = vrep.simxGetObjectHandle(
             clientID,
@@ -100,6 +100,20 @@ try:
 
         while not rospy.is_shutdown():
 
+            # Get the IK Jacobian
+            res,retInts,retFloats,retStrings,retBuffer=vrep.simxCallScriptFunction(
+                clientID,
+                'base',
+                vrep.sim_scripttype_childscript,
+                'GetIkJacobian',
+                {},    # inputIntsn
+                {},    # inputFloats
+                {},    # inputStrings
+                '',    # inputBuffer
+                vrep.simx_opmode_blocking
+            )
+
+            print(retInts)
             # Get the Haptic device postion
             hd_x = scale_x(np.matmul(haptic_transform, phantom.hd_transform[0:3,3]))
 
@@ -116,9 +130,10 @@ try:
                     arm_x_handle,
                     -1,
                     vrep.simx_opmode_blocking)
+                # Recalculating the off-set
                 x_off = arm_x[1] - hd_x
-
-            # Set position
+            """
+            # Set position of the target -> This is from the haptic device
             vrep.simxSetObjectPosition(
                 clientID,
                 target_xyz,
@@ -126,7 +141,21 @@ try:
                 position=des_x,
                 operationMode=vrep.simx_opmode_blocking
             )
+            """
 
+            # Calculate desired endeffector pose
+            des_pose = np.concatenate((des_x,np.zeros((3,))))
+
+            # set the joint angles position
+            J = np.reshape(retFloats,[6,7])
+            J_pinv = np.linalg.pinv(J)
+            for joint_handle,des_joint_angle in zip(joint_handles,des_pose):
+                des_joint_angles = np.matmul(J_pinv,des_pose)
+                vrep.simxSetJointPosition(
+                    clientID,
+                    joint_handle,
+                    des_joint_angle,
+                    vrep.simx_opmode_blocking)
 
             # move simulation ahead one time step
             vrep.simxSynchronousTrigger(clientID)
